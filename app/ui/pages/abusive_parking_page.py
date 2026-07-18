@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 import shutil
 import uuid
@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QTableWidget,
     QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QHeaderView,
     QMessageBox,
     QFileDialog,
@@ -558,9 +560,11 @@ class AbusiveParkingPage(QWidget):
             "Détail de la surveillance"
         )
 
-        detail_layout = QHBoxLayout(
+        detail_layout = QVBoxLayout(
             detail_group
         )
+
+        vehicle_layout = QHBoxLayout()
 
         self.photo_preview = QLabel(
             "Aucune photo"
@@ -599,12 +603,50 @@ class AbusiveParkingPage(QWidget):
             Qt.AlignTop
         )
 
-        detail_layout.addWidget(
+        vehicle_layout.addWidget(
             self.photo_preview
         )
 
-        detail_layout.addWidget(
+        vehicle_layout.addWidget(
             self.detail_label,
+            1,
+        )
+
+        detail_layout.addLayout(
+            vehicle_layout
+        )
+
+        self.procedure_tree = QTreeWidget()
+
+        self.procedure_tree.setColumnCount(
+            2
+        )
+
+        self.procedure_tree.setHeaderLabels(
+            [
+                "Date et heure",
+                "Procédure",
+            ]
+        )
+
+        self.procedure_tree.setRootIsDecorated(
+            True
+        )
+
+        self.procedure_tree.setAlternatingRowColors(
+            True
+        )
+
+        self.procedure_tree.header().setStretchLastSection(
+            True
+        )
+
+        self.procedure_tree.itemClicked.connect(
+            self.show_procedure_event_photo
+        )
+
+        detail_layout.addWidget(
+            self.procedure_tree,
             1,
         )
 
@@ -1259,24 +1301,11 @@ class AbusiveParkingPage(QWidget):
             f"{parking.brand} "
             f"{parking.model}<br>"
 
-            f"<b>Genre :</b> "
-            f"{parking.vehicle_type}<br>"
-
-            f"<b>Couleur :</b> "
-            f"{parking.color}<br>"
-
-            f"<b>Propriétaire :</b> "
-            f"{parking.owner or 'Non renseigné'}"
-            f"<br><br>"
-
             f"<b>Lieu :</b> "
             f"{parking.location}<br>"
 
             f"<b>Délai restant :</b> "
-            f"{remaining} jour(s)<br><br>"
-
-            f"<b>Observations :</b><br>"
-            f"{parking.observations or 'Aucune'}"
+            f"{remaining} jour(s)"
         )
 
         self.detail_label.setText(
@@ -1286,6 +1315,10 @@ class AbusiveParkingPage(QWidget):
         self.show_photo(
             parking.photo_path,
             self.photo_preview,
+        )
+
+        self.refresh_procedure_history(
+            parking
         )
 
     # ==========================================================
@@ -1432,6 +1465,229 @@ class AbusiveParkingPage(QWidget):
         )
 
     # ==========================================================
+    # HISTORIQUE CHRONOLOGIQUE DE LA PROCÉDURE
+    # ==========================================================
+
+    def refresh_procedure_history(
+        self,
+        parking,
+    ):
+        """
+        Affiche les événements de la procédure dans l'ordre
+        chronologique. Chaque événement conserve son identifiant
+        pour préparer les futures actions sur les passages.
+        """
+
+        self.procedure_tree.clear()
+
+        if parking is None:
+            return
+
+        events = []
+
+        events.append(
+            (
+                (
+                    parking.monitoring_date or date.min,
+                    parking.monitoring_time or time.min,
+                    0,
+                ),
+                parking.monitoring_date,
+                parking.monitoring_time,
+                "Mise sous surveillance",
+                [
+                    ("Immatriculation", parking.registration),
+                    ("Lieu", parking.location),
+                    (
+                        "Délai",
+                        f"{parking.monitoring_delay_days} jour(s)",
+                    ),
+                    (
+                        "Photo",
+                        (
+                            Path(parking.photo_path).name
+                            if parking.photo_path
+                            else ""
+                        ),
+                    ),
+                    ("Observations", parking.observations),
+                ],
+                (
+                    "monitoring",
+                    parking.id,
+                    parking.photo_path,
+                ),
+            )
+        )
+
+        if parking.id is not None:
+
+            passages = self.passage_service.get_by_parking(
+                parking.id
+            )
+
+            for passage in passages:
+
+                events.append(
+                    (
+                        (
+                            passage.passage_date or date.min,
+                            passage.passage_time or time.min,
+                            1,
+                        ),
+                        passage.passage_date,
+                        passage.passage_time,
+                        passage.passage_type or "Passage",
+                        [
+                            ("Adresse", passage.address),
+                            ("Agent", passage.agent),
+                            ("Météo", passage.weather),
+                            ("Coordonnées", self.format_coordinates(
+                                passage.latitude,
+                                passage.longitude,
+                            )),
+                            (
+                                "Photo",
+                                (
+                                    Path(passage.photo_path).name
+                                    if passage.photo_path
+                                    else ""
+                                ),
+                            ),
+                            ("Observations", passage.observations),
+                        ],
+                        (
+                            "passage",
+                            passage.id,
+                            passage.photo_path,
+                        ),
+                    )
+                )
+
+        if parking.status != "active":
+
+            events.append(
+                (
+                    (
+                        parking.closure_date or date.max,
+                        parking.closure_time or time.max,
+                        2,
+                    ),
+                    parking.closure_date,
+                    parking.closure_time,
+                    "Clôture de la surveillance",
+                    [
+                        (
+                            "Issue",
+                            self.get_status_label(
+                                parking.status
+                            ),
+                        ),
+                        ("Motif", parking.closure_reason),
+                    ],
+                    ("closure", parking.id, None),
+                )
+            )
+
+        for _, event_date, event_time, title, details, data in sorted(
+            events,
+            key=lambda event: event[0],
+        ):
+
+            item = QTreeWidgetItem(
+                [
+                    self.format_event_datetime(
+                        event_date,
+                        event_time,
+                    ),
+                    title,
+                ]
+            )
+
+            item.setData(
+                0,
+                Qt.UserRole,
+                data,
+            )
+
+            for label, value in details:
+
+                if value:
+
+                    QTreeWidgetItem(
+                        item,
+                        ["", f"{label} : {value}"],
+                    )
+
+            self.procedure_tree.addTopLevelItem(
+                item
+            )
+
+        self.procedure_tree.resizeColumnToContents(
+            0
+        )
+
+    def show_procedure_event_photo(
+        self,
+        item,
+        column,
+    ):
+        """
+        Affiche la photo associée à l'événement sélectionné sans
+        modifier l'image visible lorsqu'aucune photo n'est liée.
+        """
+
+        top_item = item
+
+        while top_item.parent() is not None:
+            top_item = top_item.parent()
+
+        event_data = top_item.data(
+            0,
+            Qt.UserRole,
+        )
+
+        if not event_data or len(event_data) < 3:
+            return
+
+        photo_path = event_data[2]
+
+        if photo_path:
+            self.show_photo(
+                photo_path,
+                self.photo_preview,
+            )
+
+    @staticmethod
+    def format_event_datetime(
+        event_date,
+        event_time,
+    ):
+
+        if event_date is None:
+            return "Date non renseignée"
+
+        value = event_date.strftime(
+            "%d/%m/%Y"
+        )
+
+        if event_time is not None:
+            value += f" à {event_time.strftime('%H:%M')}"
+
+        return value
+
+    @staticmethod
+    def format_coordinates(
+        latitude,
+        longitude,
+    ):
+
+        if latitude is None or longitude is None:
+            return ""
+
+        return f"{latitude}, {longitude}"
+
+    # ==========================================================
     # NOUVEAU PASSAGE DE CONTRÔLE
     # ==========================================================
 
@@ -1475,6 +1731,10 @@ class AbusiveParkingPage(QWidget):
         )
 
         self.refresh_active_table()
+
+        self.refresh_procedure_history(
+            self.selected_parking
+        )
 
         QMessageBox.information(
             self,
@@ -1767,6 +2027,10 @@ class AbusiveParkingPage(QWidget):
             self.history_photo_preview,
         )
 
+        self.refresh_procedure_history(
+            parking
+        )
+
     # ==========================================================
     # LIBELLÉ DU STATUT
     # ==========================================================
@@ -1802,6 +2066,10 @@ class AbusiveParkingPage(QWidget):
 
         self.history_photo_preview.setText(
             "Aucune photo"
+        )
+
+        self.refresh_procedure_history(
+            None
         )
 
     # ==========================================================
@@ -1850,6 +2118,10 @@ class AbusiveParkingPage(QWidget):
 
         self.detail_label.setText(
             "Sélectionnez un véhicule dans le tableau."
+        )
+
+        self.refresh_procedure_history(
+            None
         )
 
     # ==========================================================
