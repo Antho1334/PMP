@@ -1,4 +1,7 @@
 from app.database.database import Database
+from app.providers.abusive_parking_provider import AbusiveParkingProvider
+from app.services.map_registry import MapRegistry
+from app.services.map_service import MapService
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -11,7 +14,11 @@ def main():
 
     Database()
 
-    window = MainWindow()
+    map_registry = MapRegistry()
+    map_registry.register(AbusiveParkingProvider())
+    map_service = MapService(map_registry)
+
+    window = MainWindow(map_service)
     window.show()
 
     sys.exit(app.exec())

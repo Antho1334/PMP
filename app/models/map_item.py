@@ -5,9 +5,9 @@ from typing import Optional, Union
 @dataclass
 class MapItem:
     """
-    Objet géographique générique consommé par la Cartographie
-    Opérationnelle. Les modules métier doivent convertir leurs
-    données en MapItem avant de les publier sur la carte.
+    Objet géographique générique consommé par la cartographie
+    opérationnelle. Les providers convertissent leurs données métier
+    en MapItem avant publication.
     """
 
     id: Union[int, str, None] = None
@@ -20,4 +20,3 @@ class MapItem:
     color: str = ""
     icon: str = ""
     photo_path: str = ""
-    action_id: Union[int, str, None] = None

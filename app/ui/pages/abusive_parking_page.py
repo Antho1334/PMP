@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
     QTabWidget,
-    QComboBox,
 )
 
 from app.models.abusive_parking import AbusiveParking
@@ -38,8 +37,6 @@ from app.services.abusive_parking_service import AbusiveParkingService
 from app.services.abusive_parking_passage_service import (
     AbusiveParkingPassageService,
 )
-from app.services.map_service import MapService
-from app.ui.widgets.operational_map import OperationalMap
 
 
 class AbusiveParkingPage(QWidget):
@@ -49,7 +46,6 @@ class AbusiveParkingPage(QWidget):
 
         self.service = AbusiveParkingService()
         self.passage_service = AbusiveParkingPassageService()
-        self.map_service = MapService()
 
         self.parkings = []
         self.history_parkings = []
@@ -106,17 +102,11 @@ class AbusiveParkingPage(QWidget):
         self.tabs = QTabWidget()
 
         self.active_tab = QWidget()
-        self.map_tab = QWidget()
         self.history_tab = QWidget()
 
         self.tabs.addTab(
             self.active_tab,
             "Surveillances actives",
-        )
-
-        self.tabs.addTab(
-            self.map_tab,
-            "Carte",
         )
 
         self.tabs.addTab(
@@ -127,9 +117,7 @@ class AbusiveParkingPage(QWidget):
         main_layout.addWidget(self.tabs)
 
         self.build_active_tab()
-        self.build_map_tab()
         self.build_history_tab()
-        self.tabs.currentChanged.connect(self._on_tab_changed)
 
     # ==========================================================
     # ONGLET SURVEILLANCES ACTIVES
@@ -732,125 +720,6 @@ class AbusiveParkingPage(QWidget):
         )
 
     # ==========================================================
-    # ONGLET CARTE
-    # ==========================================================
-
-    def build_map_tab(self):
-        layout = QVBoxLayout(self.map_tab)
-        title = QLabel("Cartographie opérationnelle")
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
-        layout.addWidget(title)
-
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("Afficher :"))
-        self.map_status_filter = QComboBox()
-        self.map_status_filter.addItem("Toutes les surveillances", None)
-        self.map_status_filter.addItem("Surveillances actives", "active")
-        self.map_status_filter.addItem("Véhicules déplacés", "vehicle_moved")
-        self.map_status_filter.addItem("Mises en fourrière", "impounded")
-        self.map_status_filter.currentIndexChanged.connect(self.refresh_map)
-        self.btn_map_refresh = QPushButton("Actualiser")
-        self.btn_map_refresh.clicked.connect(self.refresh_map)
-        self.btn_map_fit = QPushButton("Cadrer les marqueurs")
-        self.btn_map_fit.clicked.connect(lambda: self.operational_map.fit_to_items())
-        toolbar.addWidget(self.map_status_filter)
-        toolbar.addWidget(self.btn_map_refresh)
-        toolbar.addWidget(self.btn_map_fit)
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
-
-        self.operational_map = OperationalMap()
-        self.operational_map.setMinimumHeight(400)
-        self.operational_map.itemSelected.connect(self.show_map_item_detail)
-        layout.addWidget(self.operational_map, 1)
-        self.map_information = QLabel()
-        self.map_information.setWordWrap(True)
-        self.map_information.setStyleSheet("padding: 8px; background: #f8fafc; border: 1px solid #cbd5e1;")
-        layout.addWidget(self.map_information)
-        self.refresh_map()
-        return
-
-        layout = QVBoxLayout(
-            self.map_tab
-        )
-
-        title = QLabel(
-            "Carte des véhicules sous surveillance"
-        )
-
-        title.setAlignment(
-            Qt.AlignCenter
-        )
-
-        title.setStyleSheet(
-            """
-            font-size: 20px;
-            font-weight: bold;
-            """
-        )
-
-        information = QLabel(
-            "La cartographie interactive sera intégrée "
-            "dans une prochaine étape."
-        )
-
-        information.setAlignment(
-            Qt.AlignCenter
-        )
-
-        information.setStyleSheet(
-            """
-            color: #666666;
-            font-size: 14px;
-            """
-        )
-
-        layout.addStretch()
-
-    def refresh_map(self):
-        items = self.map_service.get_items()
-        status = self.map_status_filter.currentData()
-        if status:
-            items = [item for item in items if item.type == status]
-        self.operational_map.set_items(items)
-        if items:
-            self.map_information.setText(
-                f"{len(items)} marqueur(s) affiché(s). Utilisez la molette pour zoomer, "
-                "faites glisser la carte pour vous déplacer et cliquez sur un marqueur pour voir la fiche."
-            )
-        else:
-            self.map_information.setText(
-                "Aucun élément géolocalisé pour ce filtre. Renseignez latitude et longitude dans la fiche de surveillance."
-            )
-
-    def show_map_item_detail(self, item):
-        self.map_information.setText(
-            f"<b>{item.title}</b><br>{item.subtitle}<br>Coordonnées : "
-            f"{item.latitude:.6f}, {item.longitude:.6f}"
-        )
-        for row, parking in enumerate(self.parkings):
-            if parking.id == item.id:
-                self.tabs.setCurrentWidget(self.active_tab)
-                self.active_table.selectRow(row)
-                self.show_parking_detail(row, 0)
-                break
-
-    def _on_tab_changed(self, index):
-        if self.tabs.widget(index) is self.map_tab:
-            self.refresh_map()
-        return
-
-        layout.addWidget(
-            title
-        )
-
-        layout.addWidget(
-            information
-        )
-
-        layout.addStretch()
-
-    # ==========================================================
     # ONGLET HISTORIQUE V1.1
     # ==========================================================
 
@@ -1113,7 +982,6 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
-        self.refresh_map()
 
     # ==========================================================
     # MODIFIER
@@ -1210,7 +1078,6 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
-        self.refresh_map()
 
     def get_form_coordinates(self):
         """Valide les coordonnées saisies, facultatives mais indissociables."""
@@ -1921,7 +1788,6 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
-        self.refresh_map()
 
     # ==========================================================
     # HISTORIQUE
@@ -2259,7 +2125,6 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
-        self.refresh_map()
 
         super().showEvent(
             event

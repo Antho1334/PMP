@@ -5,6 +5,7 @@ from app.ui.pages.journal_page import JournalPage
 from app.ui.pages.dossiers_page import DossiersPage
 from app.ui.pages.actions_page import ActionsPage
 from app.ui.pages.abusive_parking_page import AbusiveParkingPage
+from app.ui.pages.operational_map_page import OperationalMapPage
 from app.ui.pages.documents_page import DocumentsPage
 from app.ui.pages.juridique_page import JuridiquePage
 from app.ui.pages.contacts_page import ContactsPage
@@ -14,7 +15,7 @@ from app.ui.pages.settings_page import SettingsPage
 
 class PageManager(QStackedWidget):
 
-    def __init__(self):
+    def __init__(self, map_service):
         super().__init__()
 
         self.addWidget(HomePage())                # index 0
@@ -27,3 +28,4 @@ class PageManager(QStackedWidget):
         self.addWidget(ContactsPage())            # index 7
         self.addWidget(DashboardPage())           # index 8
         self.addWidget(SettingsPage())            # index 9
+        self.addWidget(OperationalMapPage(map_service))  # index 10

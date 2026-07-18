@@ -21,6 +21,7 @@ class Menu(QListWidget):
             "👥 Contacts",
             "📊 Tableau de bord",
             "⚙ Paramètres",
+            "🗺️ Cartographie opérationnelle",
         ])
 
         self.currentRowChanged.connect(
