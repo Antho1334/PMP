@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
     QTabWidget,
+    QComboBox,
 )
 
 from app.models.abusive_parking import AbusiveParking
@@ -37,6 +38,8 @@ from app.services.abusive_parking_service import AbusiveParkingService
 from app.services.abusive_parking_passage_service import (
     AbusiveParkingPassageService,
 )
+from app.services.map_service import MapService
+from app.ui.widgets.operational_map import OperationalMap
 
 
 class AbusiveParkingPage(QWidget):
@@ -46,6 +49,7 @@ class AbusiveParkingPage(QWidget):
 
         self.service = AbusiveParkingService()
         self.passage_service = AbusiveParkingPassageService()
+        self.map_service = MapService()
 
         self.parkings = []
         self.history_parkings = []
@@ -125,6 +129,7 @@ class AbusiveParkingPage(QWidget):
         self.build_active_tab()
         self.build_map_tab()
         self.build_history_tab()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
     # ==========================================================
     # ONGLET SURVEILLANCES ACTIVES
@@ -292,6 +297,20 @@ class AbusiveParkingPage(QWidget):
             1,
         )
 
+        self.latitude_input = QLineEdit()
+        self.latitude_input.setPlaceholderText("Ex : 48.8566")
+        self.longitude_input = QLineEdit()
+        self.longitude_input.setPlaceholderText("Ex : 2.3522")
+        coordinates = QWidget()
+        coordinates_layout = QHBoxLayout(coordinates)
+        coordinates_layout.setContentsMargins(0, 0, 0, 0)
+        coordinates_layout.addWidget(QLabel("Lat."))
+        coordinates_layout.addWidget(self.latitude_input)
+        coordinates_layout.addWidget(QLabel("Lon."))
+        coordinates_layout.addWidget(self.longitude_input)
+        grid.addWidget(QLabel("Coordonnées :"), 7, 0)
+        grid.addWidget(coordinates, 7, 1)
+
         # ------------------------------------------------------
         # DATE
         # ------------------------------------------------------
@@ -312,13 +331,13 @@ class AbusiveParkingPage(QWidget):
 
         grid.addWidget(
             QLabel("Date :"),
-            7,
+            8,
             0,
         )
 
         grid.addWidget(
             self.monitoring_date,
-            7,
+            8,
             1,
         )
 
@@ -338,13 +357,13 @@ class AbusiveParkingPage(QWidget):
 
         grid.addWidget(
             QLabel("Heure :"),
-            8,
+            9,
             0,
         )
 
         grid.addWidget(
             self.monitoring_time,
-            8,
+            9,
             1,
         )
 
@@ -717,6 +736,39 @@ class AbusiveParkingPage(QWidget):
     # ==========================================================
 
     def build_map_tab(self):
+        layout = QVBoxLayout(self.map_tab)
+        title = QLabel("Cartographie opérationnelle")
+        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        layout.addWidget(title)
+
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(QLabel("Afficher :"))
+        self.map_status_filter = QComboBox()
+        self.map_status_filter.addItem("Toutes les surveillances", None)
+        self.map_status_filter.addItem("Surveillances actives", "active")
+        self.map_status_filter.addItem("Véhicules déplacés", "vehicle_moved")
+        self.map_status_filter.addItem("Mises en fourrière", "impounded")
+        self.map_status_filter.currentIndexChanged.connect(self.refresh_map)
+        self.btn_map_refresh = QPushButton("Actualiser")
+        self.btn_map_refresh.clicked.connect(self.refresh_map)
+        self.btn_map_fit = QPushButton("Cadrer les marqueurs")
+        self.btn_map_fit.clicked.connect(lambda: self.operational_map.fit_to_items())
+        toolbar.addWidget(self.map_status_filter)
+        toolbar.addWidget(self.btn_map_refresh)
+        toolbar.addWidget(self.btn_map_fit)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        self.operational_map = OperationalMap()
+        self.operational_map.setMinimumHeight(400)
+        self.operational_map.itemSelected.connect(self.show_map_item_detail)
+        layout.addWidget(self.operational_map, 1)
+        self.map_information = QLabel()
+        self.map_information.setWordWrap(True)
+        self.map_information.setStyleSheet("padding: 8px; background: #f8fafc; border: 1px solid #cbd5e1;")
+        layout.addWidget(self.map_information)
+        self.refresh_map()
+        return
 
         layout = QVBoxLayout(
             self.map_tab
@@ -754,6 +806,39 @@ class AbusiveParkingPage(QWidget):
         )
 
         layout.addStretch()
+
+    def refresh_map(self):
+        items = self.map_service.get_items()
+        status = self.map_status_filter.currentData()
+        if status:
+            items = [item for item in items if item.type == status]
+        self.operational_map.set_items(items)
+        if items:
+            self.map_information.setText(
+                f"{len(items)} marqueur(s) affiché(s). Utilisez la molette pour zoomer, "
+                "faites glisser la carte pour vous déplacer et cliquez sur un marqueur pour voir la fiche."
+            )
+        else:
+            self.map_information.setText(
+                "Aucun élément géolocalisé pour ce filtre. Renseignez latitude et longitude dans la fiche de surveillance."
+            )
+
+    def show_map_item_detail(self, item):
+        self.map_information.setText(
+            f"<b>{item.title}</b><br>{item.subtitle}<br>Coordonnées : "
+            f"{item.latitude:.6f}, {item.longitude:.6f}"
+        )
+        for row, parking in enumerate(self.parkings):
+            if parking.id == item.id:
+                self.tabs.setCurrentWidget(self.active_tab)
+                self.active_table.selectRow(row)
+                self.show_parking_detail(row, 0)
+                break
+
+    def _on_tab_changed(self, index):
+        if self.tabs.widget(index) is self.map_tab:
+            self.refresh_map()
+        return
 
         layout.addWidget(
             title
@@ -976,6 +1061,10 @@ class AbusiveParkingPage(QWidget):
 
             return
 
+        coordinates = self.get_form_coordinates()
+        if coordinates is None:
+            return
+
         qdate = self.monitoring_date.date()
 
         monitoring_date = date(
@@ -996,6 +1085,8 @@ class AbusiveParkingPage(QWidget):
             color=self.color_input.text().strip(),
             owner=self.owner_input.text().strip(),
             location=self.location_input.text().strip(),
+            latitude=coordinates[0],
+            longitude=coordinates[1],
             monitoring_date=monitoring_date,
             monitoring_time=(
                 self.monitoring_time
@@ -1022,6 +1113,7 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
+        self.refresh_map()
 
     # ==========================================================
     # MODIFIER
@@ -1059,6 +1151,10 @@ class AbusiveParkingPage(QWidget):
 
             return
 
+        coordinates = self.get_form_coordinates()
+        if coordinates is None:
+            return
+
         parking = self.editing_parking
 
         qdate = self.monitoring_date.date()
@@ -1076,6 +1172,7 @@ class AbusiveParkingPage(QWidget):
         parking.color = self.color_input.text().strip()
         parking.owner = self.owner_input.text().strip()
         parking.location = self.location_input.text().strip()
+        parking.latitude, parking.longitude = coordinates
 
         parking.monitoring_date = date(
             qdate.year(),
@@ -1113,6 +1210,23 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
+        self.refresh_map()
+
+    def get_form_coordinates(self):
+        """Valide les coordonnées saisies, facultatives mais indissociables."""
+        latitude_text = self.latitude_input.text().strip().replace(",", ".")
+        longitude_text = self.longitude_input.text().strip().replace(",", ".")
+        if not latitude_text and not longitude_text:
+            return None, None
+        try:
+            latitude, longitude = float(latitude_text), float(longitude_text)
+        except ValueError:
+            QMessageBox.warning(self, "Coordonnées invalides", "Latitude et longitude doivent être des nombres.")
+            return None
+        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            QMessageBox.warning(self, "Coordonnées invalides", "Latitude : -90 à 90 ; longitude : -180 à 180.")
+            return None
+        return latitude, longitude
 
     # ==========================================================
     # PHOTO
@@ -1367,6 +1481,13 @@ class AbusiveParkingPage(QWidget):
 
         self.location_input.setText(
             parking.location
+        )
+
+        self.latitude_input.setText(
+            "" if parking.latitude is None else str(parking.latitude)
+        )
+        self.longitude_input.setText(
+            "" if parking.longitude is None else str(parking.longitude)
         )
 
         if parking.monitoring_date:
@@ -1800,6 +1921,7 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
+        self.refresh_map()
 
     # ==========================================================
     # HISTORIQUE
@@ -2091,6 +2213,8 @@ class AbusiveParkingPage(QWidget):
         self.color_input.clear()
         self.owner_input.clear()
         self.location_input.clear()
+        self.latitude_input.clear()
+        self.longitude_input.clear()
 
         self.monitoring_date.setDate(
             QDate.currentDate()
@@ -2135,6 +2259,7 @@ class AbusiveParkingPage(QWidget):
 
         self.refresh_active_table()
         self.refresh_history_table()
+        self.refresh_map()
 
         super().showEvent(
             event
