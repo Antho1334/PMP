@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Base SQLite
+*.db
+
+# Environnement virtuel
+.venv/
+venv/
+
+# Fichiers temporaires
+*.log
+
+# IDE
+.vscode/
+# Données utilisateurs PMP
+data/
