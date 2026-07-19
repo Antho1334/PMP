@@ -3,8 +3,10 @@
 import json
 import math
 from pathlib import Path
+from urllib.parse import quote
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import QObject, QUrl, Signal, Slot
+from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -28,9 +30,11 @@ _MAP_CONFIGURATION = {
 }
 
 
-def _serialize_map_items(items):
-    """Retourne les éléments valides sous une forme JSON-compatible."""
+def _prepare_map_items(items):
+    """Construit les données Web et leur table de résolution Python."""
     serialized = []
+    items_by_key = {}
+    used_keys = set()
 
     for index, item in enumerate(items):
         try:
@@ -49,7 +53,15 @@ def _serialize_map_items(items):
 
         source = str(getattr(item, "source", "") or "")
         item_id = getattr(item, "id", None)
-        key = f"{source}:{item_id if item_id is not None else index}"
+        readable_id = item_id if item_id is not None else f"missing-{index}"
+        base_key = f"{quote(source, safe='')}:{quote(str(readable_id), safe='')}"
+        key = base_key
+        duplicate_number = 2
+        while key in used_keys:
+            key = f"{base_key}~{duplicate_number}"
+            duplicate_number += 1
+        used_keys.add(key)
+        items_by_key[key] = item
         serialized.append(
             {
                 "key": key,
@@ -62,7 +74,24 @@ def _serialize_map_items(items):
             }
         )
 
-    return serialized
+    return serialized, items_by_key
+
+
+def _serialize_map_items(items):
+    """Retourne les éléments valides sous une forme JSON-compatible."""
+    return _prepare_map_items(items)[0]
+
+
+class _MapEventBridge(QObject):
+    """Passerelle Web limitée aux événements émis par la carte."""
+
+    def __init__(self, selection_handler, parent=None):
+        super().__init__(parent)
+        self._selection_handler = selection_handler
+
+    @Slot(str)
+    def selectMarker(self, key):
+        self._selection_handler(key)
 
 
 class OperationalMap(QWebEngineView):
@@ -74,8 +103,15 @@ class OperationalMap(QWebEngineView):
         super().__init__(parent)
         self._items = []
         self._serialized_items = []
+        self._items_by_key = {}
+        self._selected_key = None
         self._page_ready = False
         self._fit_pending = False
+
+        self._event_bridge = _MapEventBridge(self._handle_marker_selected, self)
+        self._web_channel = QWebChannel(self.page())
+        self._web_channel.registerObject("mapEvents", self._event_bridge)
+        self.page().setWebChannel(self._web_channel)
 
         self.settings().setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
@@ -87,10 +123,13 @@ class OperationalMap(QWebEngineView):
     def set_items(self, items):
         """Mémorise et affiche le dernier état cartographique reçu."""
         candidates = list(items)
-        serialized = _serialize_map_items(candidates)
+        serialized, items_by_key = _prepare_map_items(candidates)
 
         self._items = candidates
         self._serialized_items = serialized
+        self._items_by_key = items_by_key
+        if self._selected_key not in self._items_by_key:
+            self._selected_key = None
         self._fit_pending = True
 
         if self._page_ready:
@@ -126,6 +165,16 @@ class OperationalMap(QWebEngineView):
             allow_nan=False,
         )
         self.page().runJavaScript(
-            f"window.PMPOperationalMap.setItems({payload});"
+            "window.PMPOperationalMap.setItems("
+            f"{payload}, {json.dumps(self._selected_key)}"
+            ");"
         )
         self._fit_pending = False
+
+    def _handle_marker_selected(self, key):
+        item = self._items_by_key.get(key)
+        if item is None:
+            return
+
+        self._selected_key = key
+        self.itemSelected.emit(item)

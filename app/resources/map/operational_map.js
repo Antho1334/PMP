@@ -4,7 +4,10 @@
     const state = {
         map: null,
         markers: null,
+        markersByKey: new Map(),
         items: [],
+        selectedKey: null,
+        bridge: null,
         configuration: {
             defaultCenter: [43.3336, 3.1200],
             defaultZoom: 14,
@@ -27,6 +30,17 @@
         state.markers = L.featureGroup().addTo(state.map);
         applyConfiguration();
         fitToItems();
+        initializeWebChannel();
+    }
+
+    function initializeWebChannel() {
+        if (typeof qt === "undefined" || typeof QWebChannel === "undefined") {
+            return;
+        }
+
+        new QWebChannel(qt.webChannelTransport, function (channel) {
+            state.bridge = channel.objects.mapEvents;
+        });
     }
 
     function applyConfiguration() {
@@ -79,25 +93,73 @@
         return container;
     }
 
-    function setItems(items) {
+    function normalMarkerStyle(item) {
+        return {
+            radius: 9,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: item.color || "#2563eb",
+            fillOpacity: 1
+        };
+    }
+
+    function selectedMarkerStyle(item) {
+        return {
+            radius: 12,
+            color: "#0f172a",
+            weight: 4,
+            fillColor: item.color || "#2563eb",
+            fillOpacity: 1
+        };
+    }
+
+    function selectMarker(key, notifyPython) {
+        const previous = state.markersByKey.get(state.selectedKey);
+        if (previous) {
+            previous.marker.setStyle(normalMarkerStyle(previous.item));
+            previous.marker.closeTooltip();
+        }
+
+        const selected = state.markersByKey.get(key);
+        if (!selected) {
+            state.selectedKey = null;
+            return;
+        }
+
+        state.selectedKey = key;
+        selected.marker.setStyle(selectedMarkerStyle(selected.item));
+        selected.marker.openTooltip();
+
+        if (notifyPython && state.bridge) {
+            state.bridge.selectMarker(key);
+        }
+    }
+
+    function setItems(items, selectedKey) {
         state.items = Array.isArray(items) ? items : [];
         state.markers.clearLayers();
+        state.markersByKey.clear();
+        state.selectedKey = null;
 
         state.items.forEach(function (item) {
             const marker = L.circleMarker(
                 [item.latitude, item.longitude],
-                {
-                    radius: 9,
-                    color: "#ffffff",
-                    weight: 2,
-                    fillColor: item.color || "#2563eb",
-                    fillOpacity: 1
-                }
+                normalMarkerStyle(item)
             );
             marker.bindTooltip(createTooltip(item));
+            marker.on("click", function () {
+                if (!state.bridge) {
+                    return;
+                }
+                selectMarker(item.key, true);
+            });
             marker.addTo(state.markers);
+            state.markersByKey.set(item.key, {marker: marker, item: item});
         });
 
+        if (selectedKey && state.markersByKey.has(selectedKey)) {
+            selectMarker(selectedKey, false);
+        }
         fitToItems();
     }
 
