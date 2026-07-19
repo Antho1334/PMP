@@ -162,6 +162,7 @@ def test_items_received_before_page_load_are_sent_when_ready():
     widget._serialized_items = []
     widget._items_by_key = {}
     widget._selected_key = None
+    widget._focused_location = None
     widget._page_ready = False
     widget._fit_pending = False
     widget._send_configuration = lambda: calls.append("configuration")
@@ -177,3 +178,19 @@ def test_items_received_before_page_load_are_sent_when_ready():
     assert calls[0] == "configuration"
     assert calls[1][0] == "items"
     assert calls[1][1][0]["key"] == "parking:4"
+
+
+def test_focus_location_validates_and_keeps_latest_location_until_ready():
+    widget = type("WidgetState", (), {})()
+    widget._focused_location = None
+    widget._page_ready = False
+
+    assert OperationalMap.focus_location(
+        widget, 43.3336, 3.12, 'Mairie "centre" <test>'
+    )
+    assert widget._focused_location == {
+        "latitude": 43.3336,
+        "longitude": 3.12,
+        "label": 'Mairie "centre" <test>',
+    }
+    assert not OperationalMap.focus_location(widget, 91, 3.12)

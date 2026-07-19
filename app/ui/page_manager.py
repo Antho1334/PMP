@@ -15,7 +15,7 @@ from app.ui.pages.settings_page import SettingsPage
 
 class PageManager(QStackedWidget):
 
-    def __init__(self, map_service):
+    def __init__(self, map_service, geocoding_service):
         super().__init__()
 
         self.addWidget(HomePage())                # index 0
@@ -28,4 +28,6 @@ class PageManager(QStackedWidget):
         self.addWidget(ContactsPage())            # index 7
         self.addWidget(DashboardPage())           # index 8
         self.addWidget(SettingsPage())            # index 9
-        self.addWidget(OperationalMapPage(map_service))  # index 10
+        self.addWidget(
+            OperationalMapPage(map_service, geocoding_service)
+        )  # index 10

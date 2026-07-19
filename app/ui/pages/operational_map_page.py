@@ -3,14 +3,16 @@
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.widgets.operational_map import OperationalMap
+from app.ui.widgets.geocoding_search_widget import GeocodingSearchWidget
 
 
 class OperationalMapPage(QWidget):
     """Affiche les données publiées par les providers enregistrés."""
 
-    def __init__(self, map_service):
+    def __init__(self, map_service, geocoding_service):
         super().__init__()
         self.map_service = map_service
+        self.geocoding_service = geocoding_service
         self._items = []
         self._build_ui()
         self.refresh_map()
@@ -20,6 +22,13 @@ class OperationalMapPage(QWidget):
         title = QLabel("Cartographie opérationnelle")
         title.setStyleSheet("font-size: 22px; font-weight: bold;")
         layout.addWidget(title)
+        self.geocoding_search = GeocodingSearchWidget(
+            self.geocoding_service
+        )
+        self.geocoding_search.resultSelected.connect(
+            self._focus_geocoding_result
+        )
+        layout.addWidget(self.geocoding_search)
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("Source :"))
         self.source_filter = QComboBox()
@@ -66,4 +75,11 @@ class OperationalMapPage(QWidget):
         self.information.setText(
             f"<b>{item.title}</b><br>{item.subtitle}<br>Source : {item.source}"
             f"<br>Coordonnées : {item.latitude:.6f}, {item.longitude:.6f}"
+        )
+
+    def _focus_geocoding_result(self, result):
+        self.map_widget.focus_location(
+            result.latitude,
+            result.longitude,
+            result.label,
         )

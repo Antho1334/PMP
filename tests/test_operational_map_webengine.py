@@ -3,7 +3,7 @@
 import os
 
 import pytest
-from PySide6.QtCore import QEventLoop
+from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
@@ -47,4 +47,28 @@ def test_leaflet_marker_click_emits_original_item_once():
     assert selection_spy.wait(5_000)
     assert selection_spy.count() == 1
     assert selection_spy.at(0)[0] is item
+    widget.close()
+
+
+def test_temporary_location_marker_is_created():
+    app = QApplication.instance() or QApplication([])
+    widget = OperationalMap()
+    load_spy = QSignalSpy(widget.loadFinished)
+    widget.show()
+
+    if not widget._page_ready:
+        assert load_spy.wait(10_000)
+    assert widget.focus_location(43.3336, 3.12, "Mairie de Montady")
+
+    result = []
+    loop = QEventLoop()
+    widget.page().runJavaScript(
+        "Boolean(document.querySelector('.leaflet-marker-icon'))",
+        lambda value: (result.append(value), loop.quit()),
+    )
+    QTimer.singleShot(5_000, loop.quit)
+    loop.exec()
+    app.processEvents()
+
+    assert result == [True]
     widget.close()

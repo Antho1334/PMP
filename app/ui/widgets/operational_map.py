@@ -105,6 +105,7 @@ class OperationalMap(QWebEngineView):
         self._serialized_items = []
         self._items_by_key = {}
         self._selected_key = None
+        self._focused_location = None
         self._page_ready = False
         self._fit_pending = False
 
@@ -144,6 +145,30 @@ class OperationalMap(QWebEngineView):
         self.page().runJavaScript("window.PMPOperationalMap.fitToItems();")
         self._fit_pending = False
 
+    def focus_location(self, latitude, longitude, label=""):
+        """Centre la carte sur un repère temporaire indépendant du métier."""
+        try:
+            latitude = float(latitude)
+            longitude = float(longitude)
+        except (TypeError, ValueError):
+            return False
+        if (
+            not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+        ):
+            return False
+
+        self._focused_location = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "label": str(label or ""),
+        }
+        if self._page_ready:
+            self._send_focused_location()
+        return True
+
     def _on_load_finished(self, success):
         self._page_ready = bool(success)
         if not self._page_ready:
@@ -151,6 +176,8 @@ class OperationalMap(QWebEngineView):
 
         self._send_configuration()
         self._send_items()
+        if self._focused_location is not None:
+            self._send_focused_location()
 
     def _send_configuration(self):
         payload = json.dumps(_MAP_CONFIGURATION, ensure_ascii=False)
@@ -170,6 +197,16 @@ class OperationalMap(QWebEngineView):
             ");"
         )
         self._fit_pending = False
+
+    def _send_focused_location(self):
+        payload = json.dumps(
+            self._focused_location,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        self.page().runJavaScript(
+            f"window.PMPOperationalMap.focusLocation({payload});"
+        )
 
     def _handle_marker_selected(self, key):
         item = self._items_by_key.get(key)

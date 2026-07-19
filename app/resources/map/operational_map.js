@@ -7,6 +7,7 @@
         markersByKey: new Map(),
         items: [],
         selectedKey: null,
+        focusedLocationMarker: null,
         bridge: null,
         configuration: {
             defaultCenter: [43.3336, 3.1200],
@@ -192,10 +193,36 @@
         });
     }
 
+    function focusLocation(location) {
+        if (state.focusedLocationMarker) {
+            state.map.removeLayer(state.focusedLocationMarker);
+            state.focusedLocationMarker = null;
+        }
+
+        if (!location) {
+            return;
+        }
+
+        const coordinates = [location.latitude, location.longitude];
+        state.focusedLocationMarker = L.marker(coordinates).addTo(state.map);
+        if (location.label) {
+            const tooltip = document.createElement("div");
+            tooltip.textContent = location.label;
+            state.focusedLocationMarker.bindTooltip(tooltip);
+            state.focusedLocationMarker.openTooltip();
+        }
+        state.map.setView(
+            coordinates,
+            state.configuration.singleItemZoom,
+            {animate: false}
+        );
+    }
+
     window.PMPOperationalMap = {
         configure: configure,
         setItems: setItems,
-        fitToItems: fitToItems
+        fitToItems: fitToItems,
+        focusLocation: focusLocation
     };
 
     initialize();
