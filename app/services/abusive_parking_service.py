@@ -1,19 +1,25 @@
 from datetime import date
 
+from PySide6.QtCore import QObject, Signal
+
 from app.models.abusive_parking import AbusiveParking
 from app.repositories.abusive_parking_repository import (
     AbusiveParkingRepository,
 )
 
 
-class AbusiveParkingService:
+class AbusiveParkingService(QObject):
     """
     Couche métier du module Stationnement abusif.
     """
 
-    def __init__(self):
+    monitoringChanged = Signal()
 
-        self.repository = AbusiveParkingRepository()
+    def __init__(self, repository=None, parent=None):
+
+        super().__init__(parent)
+
+        self.repository = repository or AbusiveParkingRepository()
 
     # ==========================================================
     # CRUD
@@ -25,6 +31,7 @@ class AbusiveParkingService:
     ):
 
         self.repository.add(parking)
+        self.monitoringChanged.emit()
 
     def update_monitoring(
         self,
@@ -32,13 +39,16 @@ class AbusiveParkingService:
     ):
 
         self.repository.update(parking)
+        self.monitoringChanged.emit()
 
     def delete_monitoring(
         self,
         parking_id: int
     ):
 
-        self.repository.delete(parking_id)
+        result = self.repository.delete(parking_id)
+        self.monitoringChanged.emit()
+        return result
 
     # ==========================================================
     # CONSULTATION
@@ -86,6 +96,7 @@ class AbusiveParkingService:
             parking_id,
             reason
         )
+        self.monitoringChanged.emit()
 
     # ==========================================================
     # CALCULS MÉTIER

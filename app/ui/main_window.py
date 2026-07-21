@@ -10,7 +10,12 @@ from app.ui.page_manager import PageManager
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, map_service, geocoding_service):
+    def __init__(
+        self,
+        map_service,
+        geocoding_service,
+        abusive_parking_service,
+    ):
         super().__init__()
 
         self.setWindowTitle(
@@ -26,7 +31,11 @@ class MainWindow(QMainWindow):
         # CRÉATION DES COMPOSANTS
         # ======================================================
 
-        self.pages = PageManager(map_service, geocoding_service)
+        self.pages = PageManager(
+            map_service,
+            geocoding_service,
+            abusive_parking_service,
+        )
 
         self.menu = Menu(
             self.pages

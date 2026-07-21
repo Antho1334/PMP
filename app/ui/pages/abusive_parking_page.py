@@ -1,9 +1,10 @@
 from datetime import date, time
+import math
 from pathlib import Path
 import shutil
 import uuid
 
-from PySide6.QtCore import Qt, QDate, QTime
+from PySide6.QtCore import Qt, QDate, QTime, QModelIndex, QItemSelectionModel
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QWidget,
@@ -34,17 +35,29 @@ from app.dialogs.abusive_parking_passage_dialog import (
     AbusiveParkingPassageDialog,
 )
 from app.services.abusive_parking_service import AbusiveParkingService
+from app.services.geocoding_service import GeocodingService
+from app.repositories.abusive_parking_repository import (
+    AbusiveParkingNotFoundError,
+)
 from app.services.abusive_parking_passage_service import (
     AbusiveParkingPassageService,
 )
+from app.ui.widgets.geocoding_search_widget import GeocodingSearchWidget
 
 
 class AbusiveParkingPage(QWidget):
 
-    def __init__(self):
+    def __init__(
+        self,
+        service=None,
+        geocoding_service=None,
+    ):
         super().__init__()
 
-        self.service = AbusiveParkingService()
+        self.service = service or AbusiveParkingService()
+        self.geocoding_service = (
+            geocoding_service or GeocodingService(parent=self)
+        )
         self.passage_service = AbusiveParkingPassageService()
 
         self.parkings = []
@@ -54,6 +67,11 @@ class AbusiveParkingPage(QWidget):
         self.editing_parking = None
 
         self.selected_photo_path = None
+        self._selected_latitude = None
+        self._selected_longitude = None
+        self._geocoded_location_reference = None
+        self._location_status = "absent"
+        self._deletion_in_progress = False
 
         self.build_ui()
 
@@ -133,12 +151,12 @@ class AbusiveParkingPage(QWidget):
         # FORMULAIRE
         # ======================================================
 
-        form_group = QGroupBox(
+        self.form_group = QGroupBox(
             "Fiche de surveillance"
         )
 
         form_layout = QVBoxLayout(
-            form_group
+            self.form_group
         )
 
         grid = QGridLayout()
@@ -272,6 +290,9 @@ class AbusiveParkingPage(QWidget):
         self.location_input.setPlaceholderText(
             "Lieu précis du stationnement"
         )
+        self.location_input.textEdited.connect(
+            self._on_location_edited
+        )
 
         grid.addWidget(
             QLabel("Lieu :"),
@@ -285,19 +306,72 @@ class AbusiveParkingPage(QWidget):
             1,
         )
 
+        self.geocoding_search = GeocodingSearchWidget(
+            self.geocoding_service,
+            selection_button_text="Utiliser cette adresse",
+        )
+        self.geocoding_search.resultSelected.connect(
+            self._apply_geocoding_result
+        )
+        grid.addWidget(self.geocoding_search, 7, 0, 1, 2)
+
+        self.position_status_label = QLabel()
+        self.position_status_label.setWordWrap(True)
+        self.clear_position_button = QPushButton(
+            "Supprimer la position"
+        )
+        self.clear_position_button.clicked.connect(
+            self._clear_position
+        )
+        position_status = QWidget()
+        position_status_layout = QHBoxLayout(position_status)
+        position_status_layout.setContentsMargins(0, 0, 0, 0)
+        position_status_layout.addWidget(
+            self.position_status_label,
+            1,
+        )
+        position_status_layout.addWidget(
+            self.clear_position_button
+        )
+        grid.addWidget(QLabel("Position :"), 8, 0)
+        grid.addWidget(position_status, 8, 1)
+
+        self.advanced_coordinates_button = QPushButton(
+            "Coordonnées manuelles (avancé)"
+        )
+        self.advanced_coordinates_button.setCheckable(True)
+        grid.addWidget(
+            self.advanced_coordinates_button,
+            9,
+            0,
+            1,
+            2,
+        )
+
         self.latitude_input = QLineEdit()
         self.latitude_input.setPlaceholderText("Ex : 48.8566")
         self.longitude_input = QLineEdit()
         self.longitude_input.setPlaceholderText("Ex : 2.3522")
+        self.latitude_input.textEdited.connect(
+            self._on_manual_coordinates_edited
+        )
+        self.longitude_input.textEdited.connect(
+            self._on_manual_coordinates_edited
+        )
         coordinates = QWidget()
+        self.advanced_coordinates_widget = coordinates
         coordinates_layout = QHBoxLayout(coordinates)
         coordinates_layout.setContentsMargins(0, 0, 0, 0)
         coordinates_layout.addWidget(QLabel("Lat."))
         coordinates_layout.addWidget(self.latitude_input)
         coordinates_layout.addWidget(QLabel("Lon."))
         coordinates_layout.addWidget(self.longitude_input)
-        grid.addWidget(QLabel("Coordonnées :"), 7, 0)
-        grid.addWidget(coordinates, 7, 1)
+        coordinates.setVisible(False)
+        self.advanced_coordinates_button.toggled.connect(
+            coordinates.setVisible
+        )
+        grid.addWidget(coordinates, 10, 0, 1, 2)
+        self._set_location_status("absent")
 
         # ------------------------------------------------------
         # DATE
@@ -319,13 +393,13 @@ class AbusiveParkingPage(QWidget):
 
         grid.addWidget(
             QLabel("Date :"),
-            8,
+            11,
             0,
         )
 
         grid.addWidget(
             self.monitoring_date,
-            8,
+            11,
             1,
         )
 
@@ -345,13 +419,13 @@ class AbusiveParkingPage(QWidget):
 
         grid.addWidget(
             QLabel("Heure :"),
-            9,
+            12,
             0,
         )
 
         grid.addWidget(
             self.monitoring_time,
-            9,
+            12,
             1,
         )
 
@@ -376,13 +450,13 @@ class AbusiveParkingPage(QWidget):
 
         grid.addWidget(
             QLabel("Délai :"),
-            9,
+            13,
             0,
         )
 
         grid.addWidget(
             self.delay_input,
-            9,
+            13,
             1,
         )
 
@@ -450,24 +524,35 @@ class AbusiveParkingPage(QWidget):
             "Nouvelle"
         )
 
-        self.btn_add = QPushButton(
+        self.btn_save = QPushButton(
             "Enregistrer"
         )
-
-        self.btn_update = QPushButton(
-            "Modifier"
+        self.btn_delete = QPushButton(
+            "Supprimer la surveillance"
+        )
+        self.btn_delete.setStyleSheet(
+            """
+            QPushButton {
+                color: #991b1b;
+                border: 1px solid #dc2626;
+                padding: 6px 10px;
+            }
+            QPushButton:disabled {
+                color: #9ca3af;
+                border-color: #d1d5db;
+            }
+            """
         )
 
         self.btn_new.clicked.connect(
             self.new_monitoring
         )
 
-        self.btn_add.clicked.connect(
-            self.add_monitoring
+        self.btn_save.clicked.connect(
+            self.save_monitoring
         )
-
-        self.btn_update.clicked.connect(
-            self.update_monitoring
+        self.btn_delete.clicked.connect(
+            self.delete_monitoring
         )
 
         buttons_layout.addWidget(
@@ -475,11 +560,11 @@ class AbusiveParkingPage(QWidget):
         )
 
         buttons_layout.addWidget(
-            self.btn_add
+            self.btn_save
         )
-
+        buttons_layout.addStretch()
         buttons_layout.addWidget(
-            self.btn_update
+            self.btn_delete
         )
 
         form_layout.addLayout(
@@ -487,9 +572,10 @@ class AbusiveParkingPage(QWidget):
         )
 
         main_layout.addWidget(
-            form_group,
+            self.form_group,
             1,
         )
+        self._set_form_mode(False)
 
         # ======================================================
         # PARTIE DROITE
@@ -542,7 +628,7 @@ class AbusiveParkingPage(QWidget):
             QAbstractItemView.NoEditTriggers
         )
 
-        self.active_table.cellClicked.connect(
+        self.active_table.selectionModel().currentRowChanged.connect(
             self.show_parking_detail
         )
 
@@ -911,6 +997,245 @@ class AbusiveParkingPage(QWidget):
     # CRÉER UNE SURVEILLANCE
     # ==========================================================
 
+    def save_monitoring(self):
+        """Enregistre selon le mode courant du formulaire."""
+        if self.editing_parking is None:
+            self.add_monitoring()
+        else:
+            self.update_monitoring()
+
+    def _set_form_mode(self, is_editing):
+        """Centralise la présentation du mode création/modification."""
+        if is_editing:
+            self.form_group.setTitle(
+                "Fiche de surveillance — Modification"
+            )
+            self.btn_save.setText(
+                "Enregistrer les modifications"
+            )
+        else:
+            self.form_group.setTitle(
+                "Fiche de surveillance — Création"
+            )
+            self.btn_save.setText("Enregistrer")
+        self.btn_delete.setEnabled(
+            bool(
+                is_editing
+                and self.editing_parking is not None
+                and self.editing_parking.id is not None
+                and not self._deletion_in_progress
+            )
+        )
+
+    def delete_monitoring(self):
+        """Supprime la surveillance active chargée en modification."""
+        if self._deletion_in_progress:
+            return
+        target = self.editing_parking
+        target_id = target.id if target is not None else None
+        if target is None or target_id is None:
+            self._set_form_mode(False)
+            return
+
+        self._deletion_in_progress = True
+        self.btn_delete.setEnabled(False)
+        try:
+            passages = self.passage_service.get_by_parking(target_id)
+        except Exception as error:
+            self._deletion_in_progress = False
+            self._set_form_mode(True)
+            QMessageBox.critical(
+                self,
+                "Suppression impossible",
+                (
+                    "Les données associées à la surveillance n'ont "
+                    f"pas pu être vérifiées.\n\n{error}"
+                ),
+            )
+            return
+        vehicle = " ".join(
+            value for value in (target.brand, target.model) if value
+        )
+        passage_photo_count = sum(
+            bool(passage.photo_path) for passage in passages
+        )
+        details = [
+            f"Immatriculation : {target.registration}",
+            f"Véhicule : {vehicle or 'Non renseigné'}",
+            f"Lieu : {target.location or 'Non renseigné'}",
+            f"Passages associés : {len(passages)}",
+            (
+                "Photo principale : "
+                f"{'Oui' if target.photo_path else 'Non'}"
+            ),
+            f"Photos de passages : {passage_photo_count}",
+            "",
+            "Cette suppression est définitive.",
+            "Cette action est irréversible.",
+        ]
+
+        confirmation = QMessageBox(self)
+        confirmation.setIcon(QMessageBox.Warning)
+        confirmation.setWindowTitle(
+            "Supprimer définitivement la surveillance"
+        )
+        confirmation.setText("\n".join(details))
+        cancel_button = confirmation.addButton(
+            "Annuler",
+            QMessageBox.RejectRole,
+        )
+        delete_button = confirmation.addButton(
+            "Supprimer définitivement",
+            QMessageBox.DestructiveRole,
+        )
+        confirmation.setDefaultButton(cancel_button)
+        confirmation.setEscapeButton(cancel_button)
+        confirmation.exec()
+
+        if confirmation.clickedButton() is not delete_button:
+            self._deletion_in_progress = False
+            self._set_form_mode(True)
+            return
+
+        try:
+            result = self.service.delete_monitoring(target_id)
+        except AbusiveParkingNotFoundError:
+            self._deletion_in_progress = False
+            self._set_form_mode(True)
+            QMessageBox.warning(
+                self,
+                "Surveillance introuvable",
+                (
+                    "Cette surveillance n'existe plus ou a déjà "
+                    "été supprimée."
+                ),
+            )
+            return
+        except Exception as error:
+            self._deletion_in_progress = False
+            self._set_form_mode(True)
+            QMessageBox.critical(
+                self,
+                "Suppression impossible",
+                f"La surveillance n'a pas pu être supprimée.\n\n{error}",
+            )
+            return
+
+        self._deletion_in_progress = False
+        self.new_monitoring()
+        self.refresh_active_table()
+        self.refresh_history_table()
+        if result is not None and result.has_file_warnings:
+            QMessageBox.warning(
+                self,
+                "Surveillance supprimée",
+                (
+                    "La surveillance a été supprimée, mais certaines "
+                    "photos n'ont pas pu être effacées."
+                ),
+            )
+
+    def _set_location_status(self, status):
+        self._location_status = status
+        presentations = {
+            "valid": (
+                "Position GPS validée",
+                "color: #15803d; font-weight: bold;",
+            ),
+            "invalidated": (
+                "Nouvelle recherche nécessaire",
+                "color: #b45309; font-weight: bold;",
+            ),
+            "absent": (
+                "Position GPS absente",
+                "color: #64748b;",
+            ),
+        }
+        text, style = presentations[status]
+        self.position_status_label.setText(text)
+        self.position_status_label.setStyleSheet(style)
+        self.clear_position_button.setEnabled(
+            self._selected_latitude is not None
+            or self._selected_longitude is not None
+        )
+
+    def _apply_geocoding_result(self, result):
+        """Copie une sélection explicite dans l'état temporaire."""
+        self._selected_latitude = float(result.latitude)
+        self._selected_longitude = float(result.longitude)
+        self._geocoded_location_reference = " ".join(
+            result.label.split()
+        )
+        self.location_input.setText(result.label)
+        self.latitude_input.setText(str(result.latitude))
+        self.longitude_input.setText(str(result.longitude))
+        self.geocoding_search.set_query(result.label)
+        self._set_location_status("valid")
+
+    def _on_location_edited(self, text):
+        """Invalide une position seulement après une vraie saisie utilisateur."""
+        if (
+            self._selected_latitude is None
+            and self._selected_longitude is None
+        ):
+            return
+        normalized_location = " ".join(text.split())
+        if normalized_location == self._geocoded_location_reference:
+            return
+        self._selected_latitude = None
+        self._selected_longitude = None
+        self._geocoded_location_reference = None
+        self.latitude_input.clear()
+        self.longitude_input.clear()
+        self._set_location_status("invalidated")
+
+    def _on_manual_coordinates_edited(self, _text=None):
+        """Actualise l'état visuel de la saisie avancée sans enregistrer."""
+        latitude_text = (
+            self.latitude_input.text().strip().replace(",", ".")
+        )
+        longitude_text = (
+            self.longitude_input.text().strip().replace(",", ".")
+        )
+        if not latitude_text and not longitude_text:
+            self._selected_latitude = None
+            self._selected_longitude = None
+            self._geocoded_location_reference = None
+            self._set_location_status("absent")
+            return
+        try:
+            latitude = float(latitude_text)
+            longitude = float(longitude_text)
+        except ValueError:
+            self._selected_latitude = None
+            self._selected_longitude = None
+            self._set_location_status("invalidated")
+            return
+        if (
+            math.isfinite(latitude)
+            and math.isfinite(longitude)
+            and -90 <= latitude <= 90
+            and -180 <= longitude <= 180
+        ):
+            self._selected_latitude = latitude
+            self._selected_longitude = longitude
+            self._geocoded_location_reference = " ".join(
+                self.location_input.text().split()
+            )
+            self._set_location_status("valid")
+        else:
+            self._selected_latitude = None
+            self._selected_longitude = None
+            self._set_location_status("invalidated")
+
+    def _clear_position(self):
+        self._selected_latitude = None
+        self._selected_longitude = None
+        self._geocoded_location_reference = None
+        self.latitude_input.clear()
+        self.longitude_input.clear()
+        self._set_location_status("absent")
+
     def add_monitoring(self):
 
         registration = (
@@ -1090,9 +1415,16 @@ class AbusiveParkingPage(QWidget):
         except ValueError:
             QMessageBox.warning(self, "Coordonnées invalides", "Latitude et longitude doivent être des nombres.")
             return None
-        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        if (
+            not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+        ):
             QMessageBox.warning(self, "Coordonnées invalides", "Latitude : -90 à 90 ; longitude : -180 à 180.")
             return None
+        self._selected_latitude = latitude
+        self._selected_longitude = longitude
         return latitude, longitude
 
     # ==========================================================
@@ -1255,18 +1587,27 @@ class AbusiveParkingPage(QWidget):
 
     def show_parking_detail(
         self,
-        row,
-        column,
+        current_index,
+        previous_index=None,
     ):
+        row = current_index.row()
+        if not current_index.isValid():
+            self.selected_parking = None
+            self.detail_label.setText(
+                "Sélectionnez un véhicule dans le tableau."
+            )
+            self.photo_preview.clear()
+            self.photo_preview.setText("Aucune photo")
+            self.refresh_procedure_history(None)
+            return
 
-        if row < 0 or row >= len(
-            self.parkings
-        ):
+        if row < 0 or row >= len(self.parkings):
             return
 
         parking = self.parkings[row]
 
         self.selected_parking = parking
+        self.load_parking_into_form(parking)
 
         remaining = (
             self.service.get_days_remaining(
@@ -1306,22 +1647,10 @@ class AbusiveParkingPage(QWidget):
     # DOUBLE CLIC = ÉDITION
     # ==========================================================
 
-    def edit_parking(
+    def load_parking_into_form(
         self,
-        row,
-        column,
+        parking,
     ):
-
-        if row < 0 or row >= len(
-            self.parkings
-        ):
-            return
-
-        parking = self.parkings[row]
-
-        self.editing_parking = parking
-        self.selected_parking = parking
-
         self.registration_input.setText(
             parking.registration
         )
@@ -1356,6 +1685,24 @@ class AbusiveParkingPage(QWidget):
         self.longitude_input.setText(
             "" if parking.longitude is None else str(parking.longitude)
         )
+        if (
+            parking.latitude is not None
+            and parking.longitude is not None
+        ):
+            self._selected_latitude = float(parking.latitude)
+            self._selected_longitude = float(parking.longitude)
+            self._geocoded_location_reference = " ".join(
+                (parking.location or "").split()
+            )
+            self._set_location_status("valid")
+        else:
+            self._selected_latitude = None
+            self._selected_longitude = None
+            self._geocoded_location_reference = None
+            self.latitude_input.clear()
+            self.longitude_input.clear()
+            self._set_location_status("absent")
+        self.geocoding_search.set_query(parking.location)
 
         if parking.monitoring_date:
 
@@ -1400,10 +1747,22 @@ class AbusiveParkingPage(QWidget):
                 "Aucune photo"
             )
 
-        self.show_parking_detail(
-            row,
-            column,
-        )
+    def edit_parking(
+        self,
+        row,
+        column,
+    ):
+
+        if row < 0 or row >= len(
+            self.parkings
+        ):
+            return
+
+        parking = self.parkings[row]
+        self.selected_parking = parking
+        self.load_parking_into_form(parking)
+        self.editing_parking = parking
+        self._set_form_mode(True)
 
     # ==========================================================
     # AFFICHAGE PHOTO GÉNÉRIQUE
@@ -2069,8 +2428,13 @@ class AbusiveParkingPage(QWidget):
         self.selected_parking = None
         self.editing_parking = None
         self.selected_photo_path = None
+        self._set_form_mode(False)
 
         self.active_table.clearSelection()
+        self.active_table.selectionModel().setCurrentIndex(
+            QModelIndex(),
+            QItemSelectionModel.SelectionFlag.NoUpdate,
+        )
 
         self.registration_input.clear()
         self.brand_input.clear()
@@ -2081,6 +2445,12 @@ class AbusiveParkingPage(QWidget):
         self.location_input.clear()
         self.latitude_input.clear()
         self.longitude_input.clear()
+        self._selected_latitude = None
+        self._selected_longitude = None
+        self._geocoded_location_reference = None
+        self._set_location_status("absent")
+        self.geocoding_search.reset()
+        self.advanced_coordinates_button.setChecked(False)
 
         self.monitoring_date.setDate(
             QDate.currentDate()

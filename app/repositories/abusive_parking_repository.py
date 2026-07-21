@@ -1,8 +1,25 @@
+from dataclasses import dataclass
 from datetime import datetime, date, time
+from pathlib import Path
 from typing import List, Optional
 
 from app.database.database import Database
 from app.models.abusive_parking import AbusiveParking
+
+
+class AbusiveParkingNotFoundError(LookupError):
+    """La surveillance ciblée n'existe plus dans SQLite."""
+
+
+@dataclass(frozen=True)
+class AbusiveParkingDeletionResult:
+    deleted_files: tuple = ()
+    preserved_files: tuple = ()
+    failed_files: tuple = ()
+
+    @property
+    def has_file_warnings(self):
+        return bool(self.failed_files)
 
 
 class AbusiveParkingRepository:
@@ -10,9 +27,9 @@ class AbusiveParkingRepository:
     Accès à la table abusive_parking.
     """
 
-    def __init__(self):
+    def __init__(self, db=None):
 
-        self.db = Database()
+        self.db = db or Database()
 
     # ==========================================================
     # OUTILS
@@ -478,15 +495,144 @@ class AbusiveParkingRepository:
         self,
         parking_id: int
     ):
+        """Supprime atomiquement la fiche et ses passages, puis ses photos sûres."""
+        connection = self.db.connection
+        cursor = self.db.cursor
+        if cursor.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+            raise RuntimeError(
+                "Les clés étrangères SQLite ne sont pas activées."
+            )
 
-        self.db.cursor.execute(
+        try:
+            connection.execute("BEGIN")
+            parking_row = cursor.execute(
+                """
+                SELECT photo_path
+                FROM abusive_parking
+                WHERE id=?
+                """,
+                (parking_id,),
+            ).fetchone()
+            if parking_row is None:
+                raise AbusiveParkingNotFoundError(
+                    "Cette surveillance n'existe plus ou a déjà été supprimée."
+                )
+
+            passage_rows = cursor.execute(
+                """
+                SELECT photo_path
+                FROM abusive_parking_passages
+                WHERE parking_id=?
+                """,
+                (parking_id,),
+            ).fetchall()
+            candidate_paths = [
+                parking_row["photo_path"],
+                *(row["photo_path"] for row in passage_rows),
+            ]
+
+            cursor.execute(
+                "DELETE FROM abusive_parking WHERE id=?",
+                (parking_id,),
+            )
+            if cursor.rowcount != 1:
+                raise AbusiveParkingNotFoundError(
+                    "Cette surveillance n'existe plus ou a déjà été supprimée."
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+        try:
+            return self._delete_unreferenced_photo_files(candidate_paths)
+        except Exception as error:
+            return AbusiveParkingDeletionResult(
+                failed_files=(("Nettoyage des photos", str(error)),)
+            )
+
+    def _delete_unreferenced_photo_files(self, candidate_paths):
+        """Efface uniquement les fichiers PMP valides devenus non référencés."""
+        remaining_rows = self.db.cursor.execute(
             """
-            DELETE FROM abusive_parking
+            SELECT photo_path
+            FROM abusive_parking
+            WHERE photo_path IS NOT NULL AND TRIM(photo_path)<>''
+            UNION ALL
+            SELECT photo_path
+            FROM abusive_parking_passages
+            WHERE photo_path IS NOT NULL AND TRIM(photo_path)<>''
+            """
+        ).fetchall()
+        remaining_paths = {
+            self._normalized_path(row["photo_path"])
+            for row in remaining_rows
+            if self._normalized_path(row["photo_path"]) is not None
+        }
 
-            WHERE id=?
-            """,
+        deleted = []
+        preserved = []
+        failed = []
+        handled = set()
+        for raw_path in candidate_paths:
+            path = self._normalized_path(raw_path)
+            if path is None:
+                if raw_path and str(raw_path).strip():
+                    preserved.append(str(raw_path))
+                continue
+            if path in handled:
+                continue
+            handled.add(path)
+            if (
+                not self._is_managed_photo_path(path)
+                or path in remaining_paths
+                or not path.exists()
+            ):
+                preserved.append(str(path))
+                continue
+            try:
+                path.unlink()
+            except OSError as error:
+                failed.append((str(path), str(error)))
+            else:
+                deleted.append(str(path))
 
-            (parking_id,)
+        return AbusiveParkingDeletionResult(
+            deleted_files=tuple(deleted),
+            preserved_files=tuple(preserved),
+            failed_files=tuple(failed),
         )
 
-        self.db.connection.commit()
+    @staticmethod
+    def _normalized_path(raw_path):
+        if not raw_path or not str(raw_path).strip():
+            return None
+        try:
+            return Path(str(raw_path)).expanduser().resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+    @staticmethod
+    def _is_managed_photo_path(path):
+        project_root = Path(__file__).resolve().parents[2]
+        allowed_directories = (
+            (
+                project_root
+                / "data"
+                / "abusive_parking"
+                / "photos"
+            ).resolve(),
+            (
+                project_root
+                / "data"
+                / "abusive_parking"
+                / "passages"
+            ).resolve(),
+        )
+        for directory in allowed_directories:
+            try:
+                path.relative_to(directory)
+            except ValueError:
+                continue
+            return True
+        return False

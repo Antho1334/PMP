@@ -18,11 +18,17 @@ class GeocodingSearchWidget(QWidget):
 
     resultSelected = Signal(object)
 
-    def __init__(self, geocoding_service, parent=None):
+    def __init__(
+        self,
+        geocoding_service,
+        parent=None,
+        selection_button_text="Centrer sur ce résultat",
+    ):
         super().__init__(parent)
         self._service = geocoding_service
         self._active_request_id = None
         self._results = []
+        self._selection_button_text = selection_button_text
         self._build_ui()
 
         self._service.resultsReady.connect(self._show_results)
@@ -55,7 +61,7 @@ class GeocodingSearchWidget(QWidget):
         action_layout = QHBoxLayout()
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
-        self.select_button = QPushButton("Centrer sur ce résultat")
+        self.select_button = QPushButton(self._selection_button_text)
         self.select_button.setEnabled(False)
         self.select_button.clicked.connect(self._select_current_result)
         action_layout.addWidget(self.status_label, 1)
@@ -133,3 +139,18 @@ class GeocodingSearchWidget(QWidget):
     def _set_busy(self, busy):
         self.query_input.setEnabled(not busy)
         self.search_button.setEnabled(not busy)
+
+    def set_query(self, query):
+        """Préremplit la recherche sans la lancer."""
+        self.query_input.setText(str(query or ""))
+
+    def reset(self):
+        """Réinitialise la recherche sans modifier le formulaire parent."""
+        self._active_request_id = None
+        self._results = []
+        self.query_input.clear()
+        self.results_list.clear()
+        self.results_list.setVisible(False)
+        self.select_button.setEnabled(False)
+        self.status_label.clear()
+        self._set_busy(False)

@@ -81,3 +81,14 @@ def test_network_error_keeps_query_and_reenables_search():
     assert widget.search_button.isEnabled()
     assert widget.status_label.text() == "Réseau indisponible"
     app.processEvents()
+
+
+def test_selection_button_text_can_be_adapted_to_the_parent_form():
+    app = _application()
+    widget = GeocodingSearchWidget(
+        FakeGeocodingService(),
+        selection_button_text="Utiliser cette adresse",
+    )
+
+    assert widget.select_button.text() == "Utiliser cette adresse"
+    app.processEvents()

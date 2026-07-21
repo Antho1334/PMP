@@ -9,13 +9,22 @@ from app.ui.widgets.geocoding_search_widget import GeocodingSearchWidget
 class OperationalMapPage(QWidget):
     """Affiche les données publiées par les providers enregistrés."""
 
-    def __init__(self, map_service, geocoding_service):
+    def __init__(
+        self,
+        map_service,
+        geocoding_service,
+        abusive_parking_service=None,
+    ):
         super().__init__()
         self.map_service = map_service
         self.geocoding_service = geocoding_service
         self._items = []
         self._build_ui()
         self.refresh_map()
+        if abusive_parking_service is not None:
+            abusive_parking_service.monitoringChanged.connect(
+                self.refresh_map
+            )
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
