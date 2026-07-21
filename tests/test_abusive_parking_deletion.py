@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.models.abusive_parking import AbusiveParking
 from tests.test_abusive_parking_form_mode import _stateful_page
@@ -77,8 +77,15 @@ def test_single_click_and_history_do_not_enable_deletion():
     page, _ = _stateful_page(
         [AbusiveParking(id=7, registration="AA-123-AA")]
     )
+    page.show()
+    QApplication.processEvents()
 
-    page.active_table.cellClicked.emit(0, 0)
+    item = page.active_table.item(0, 0)
+    QTest.mouseClick(
+        page.active_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=page.active_table.visualItemRect(item).center(),
+    )
     assert page.selected_parking.id == 7
     assert page.editing_parking is None
     assert not page.btn_delete.isEnabled()
