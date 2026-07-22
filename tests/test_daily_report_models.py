@@ -101,7 +101,7 @@ def test_daily_report_can_be_empty_without_being_partial():
 
 
 def test_daily_report_is_partial_when_it_contains_a_warning():
-    warning = DailyReportWarning("optional", "Collecte indisponible")
+    warning = DailyReportWarning("optional", REPORT_DATE, "Collecte indisponible")
     report = DailyReport(REPORT_DATE, warnings=[warning])
 
     assert report.warnings == (warning,)
@@ -126,11 +126,13 @@ def test_daily_report_copies_collections_to_immutable_tuples():
 
 
 def test_warning_validates_required_fields_and_is_immutable():
-    warning = DailyReportWarning("provider", "Incident", "timeout", "Détail")
+    warning = DailyReportWarning("provider", REPORT_DATE, "Incident", "timeout", "Détail")
 
     with pytest.raises(FrozenInstanceError):
         warning.message = "Autre"
     with pytest.raises(ValueError):
-        DailyReportWarning("", "Incident")
+        DailyReportWarning("", REPORT_DATE, "Incident")
     with pytest.raises(ValueError):
-        DailyReportWarning("provider", " ")
+        DailyReportWarning("provider", REPORT_DATE, " ")
+    with pytest.raises(TypeError):
+        DailyReportWarning("provider", datetime(2026, 7, 21, 8), "Incident")

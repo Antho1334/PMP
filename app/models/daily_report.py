@@ -66,12 +66,15 @@ class DailyReportWarning:
     """Incident non bloquant rencontré pendant une collecte."""
 
     provider_name: str
+    report_date: date
     message: str
     warning_code: str | None = None
     details: str | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.provider_name, "provider_name")
+        if isinstance(self.report_date, datetime) or not isinstance(self.report_date, date):
+            raise TypeError("report_date doit être une date, sans composante horaire.")
         _require_non_empty_string(self.message, "message")
         _validate_optional_string(self.warning_code, "warning_code")
         _validate_optional_string(self.details, "details")
