@@ -24,6 +24,7 @@ class PageManager(QStackedWidget):
         journal_service,
         daily_report_service,
         daily_report_renderer,
+        daily_report_pdf_exporter,
     ):
         super().__init__()
 
@@ -53,5 +54,6 @@ class PageManager(QStackedWidget):
             DailyReportPage(
                 daily_report_service,
                 daily_report_renderer,
+                daily_report_pdf_exporter,
             )
         )  # index 11

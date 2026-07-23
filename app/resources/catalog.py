@@ -4,6 +4,7 @@ from app.resources.application_resources import ApplicationResource
 from app.resources.banners import Banner
 from app.resources.fonts import Font
 from app.resources.icons import Icon
+from app.resources.images import Image
 from app.resources.logos import Logo
 from app.resources.templates import Template
 from app.resources.watermarks import Watermark
@@ -28,6 +29,10 @@ ICON_CATALOG: dict[Icon, str] = {
     Icon.WARNING: "assets/icons/statuses/warning.svg",
     Icon.IMPORTANT: "assets/icons/statuses/important.svg",
     Icon.INFORMATION: "assets/icons/statuses/information.svg",
+}
+
+IMAGE_CATALOG: dict[Image, str] = {
+    Image.MUNICIPAL_POLICE_PATCH: "images/pm_montady_patch.png",
 }
 
 BANNER_CATALOG: dict[Banner, str] = {

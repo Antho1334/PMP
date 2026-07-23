@@ -8,6 +8,7 @@ from app.resources.catalog import (
     APPLICATION_RESOURCE_CATALOG,
     BANNER_CATALOG,
     FONT_CATALOG,
+    IMAGE_CATALOG,
     ICON_CATALOG,
     LOGO_CATALOG,
     TEMPLATE_CATALOG,
@@ -16,6 +17,7 @@ from app.resources.catalog import (
 from app.resources.errors import ResourceNotFoundError
 from app.resources.fonts import Font
 from app.resources.icons import Icon
+from app.resources.images import Image
 from app.resources.logos import Logo
 from app.resources.resource_manager import ResourceManager
 from app.resources.templates import Template
@@ -34,6 +36,7 @@ def complete_resource_root(tmp_path):
     for catalog in (
         LOGO_CATALOG,
         ICON_CATALOG,
+        IMAGE_CATALOG,
         BANNER_CATALOG,
         WATERMARK_CATALOG,
         TEMPLATE_CATALOG,
@@ -50,6 +53,7 @@ def test_manager_can_use_its_default_resource_root():
 
     assert manager.logo(Logo.PMP).is_file()
     assert manager.banner(Banner.PMP).is_file()
+    assert manager.image(Image.MUNICIPAL_POLICE_PATCH).is_file()
     assert manager.application_resource(
         ApplicationResource.OPERATIONAL_MAP_PAGE
     ).is_file()
@@ -86,6 +90,7 @@ def test_manager_rejects_a_file_as_resource_root(tmp_path):
     [
         ("logo", Logo.PMP, LOGO_CATALOG),
         ("icon", Icon.WARNING, ICON_CATALOG),
+        ("image", Image.MUNICIPAL_POLICE_PATCH, IMAGE_CATALOG),
         ("banner", Banner.PMP, BANNER_CATALOG),
         ("watermark", Watermark.PMP, WATERMARK_CATALOG),
         ("template", Template.DAILY_REPORT_WORD, TEMPLATE_CATALOG),
@@ -117,6 +122,7 @@ def test_each_resource_family_resolves_to_an_absolute_path(
     [
         ("logo", Icon.WARNING),
         ("icon", Logo.PMP),
+        ("image", Logo.PMP),
         ("banner", "pmp"),
         ("watermark", None),
         ("template", Font.DEFAULT),
@@ -212,6 +218,7 @@ def test_repeated_resolution_is_stable(complete_resource_root):
 def test_catalogs_cover_every_official_enum_member():
     assert set(LOGO_CATALOG) == set(Logo)
     assert set(ICON_CATALOG) == set(Icon)
+    assert set(IMAGE_CATALOG) == set(Image)
     assert set(BANNER_CATALOG) == set(Banner)
     assert set(WATERMARK_CATALOG) == set(Watermark)
     assert set(TEMPLATE_CATALOG) == set(Template)

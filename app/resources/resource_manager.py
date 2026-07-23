@@ -12,6 +12,7 @@ from app.resources.catalog import (
     APPLICATION_RESOURCE_CATALOG,
     BANNER_CATALOG,
     FONT_CATALOG,
+    IMAGE_CATALOG,
     ICON_CATALOG,
     LOGO_CATALOG,
     TEMPLATE_CATALOG,
@@ -20,6 +21,7 @@ from app.resources.catalog import (
 from app.resources.errors import ResourceNotFoundError
 from app.resources.fonts import Font
 from app.resources.icons import Icon
+from app.resources.images import Image
 from app.resources.logos import Logo
 from app.resources.templates import Template
 from app.resources.watermarks import Watermark
@@ -55,6 +57,11 @@ class ResourceManager:
         """Retourne le chemin d'une icône officielle."""
 
         return self._resolve(resource, Icon, ICON_CATALOG)
+
+    def image(self, resource: Image) -> Path:
+        """Retourne le chemin d'une image institutionnelle."""
+
+        return self._resolve(resource, Image, IMAGE_CATALOG)
 
     def banner(self, resource: Banner) -> Path:
         """Retourne le chemin d'une bannière officielle."""

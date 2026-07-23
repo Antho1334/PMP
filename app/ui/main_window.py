@@ -18,6 +18,7 @@ class MainWindow(QMainWindow):
         journal_service,
         daily_report_service,
         daily_report_renderer,
+        daily_report_pdf_exporter,
     ):
         super().__init__()
 
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
             journal_service,
             daily_report_service,
             daily_report_renderer,
+            daily_report_pdf_exporter,
         )
 
         self.menu = Menu(
