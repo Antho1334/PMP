@@ -15,6 +15,9 @@ class MainWindow(QMainWindow):
         map_service,
         geocoding_service,
         abusive_parking_service,
+        journal_service,
+        daily_report_service,
+        daily_report_renderer,
     ):
         super().__init__()
 
@@ -35,6 +38,9 @@ class MainWindow(QMainWindow):
             map_service,
             geocoding_service,
             abusive_parking_service,
+            journal_service,
+            daily_report_service,
+            daily_report_renderer,
         )
 
         self.menu = Menu(

@@ -34,10 +34,10 @@ from app.services.journal_pdf_service import JournalPdfService
 
 class JournalPage(QWidget):
 
-    def __init__(self):
+    def __init__(self, journal_service=None):
         super().__init__()
 
-        self.service = JournalService()
+        self.service = journal_service or JournalService()
         self.pdf_service = JournalPdfService()
 
         # Activité sélectionnée dans le tableau

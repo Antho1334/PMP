@@ -34,6 +34,12 @@ class DailyReportService:
             raise TypeError("registry doit être un DailyReportRegistry.")
         self._registry = registry
 
+    @property
+    def has_registered_providers(self) -> bool:
+        """Indique si le moteur dispose d'au moins une source de rapport."""
+
+        return self._registry.provider_count > 0
+
     def generate(self, report_date: date) -> DailyReport:
         """Construit le rapport agrégé correspondant à la date demandée."""
 

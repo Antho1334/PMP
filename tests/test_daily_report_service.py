@@ -78,6 +78,22 @@ def test_service_requires_registry():
         DailyReportService(object())
 
 
+def test_registered_provider_availability_is_read_only_and_tracks_registry():
+    registry = DailyReportRegistry()
+    service = DailyReportService(registry)
+
+    assert service.has_registered_providers is False
+
+    registry.register(FakeProvider())
+    assert service.has_registered_providers is True
+
+    with pytest.raises(AttributeError):
+        service.has_registered_providers = False
+
+    registry.clear()
+    assert service.has_registered_providers is False
+
+
 def test_generate_without_provider_returns_complete_empty_report():
     report = _service().generate(REPORT_DATE)
 

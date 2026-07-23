@@ -11,6 +11,7 @@ from app.ui.pages.juridique_page import JuridiquePage
 from app.ui.pages.contacts_page import ContactsPage
 from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.settings_page import SettingsPage
+from app.ui.pages.daily_report_page import DailyReportPage
 
 
 class PageManager(QStackedWidget):
@@ -20,11 +21,14 @@ class PageManager(QStackedWidget):
         map_service,
         geocoding_service,
         abusive_parking_service,
+        journal_service,
+        daily_report_service,
+        daily_report_renderer,
     ):
         super().__init__()
 
         self.addWidget(HomePage())                # index 0
-        self.addWidget(JournalPage())             # index 1
+        self.addWidget(JournalPage(journal_service))  # index 1
         self.addWidget(DossiersPage())            # index 2
         self.addWidget(ActionsPage())             # index 3
         self.addWidget(
@@ -45,3 +49,9 @@ class PageManager(QStackedWidget):
                 abusive_parking_service,
             )
         )  # index 10
+        self.addWidget(
+            DailyReportPage(
+                daily_report_service,
+                daily_report_renderer,
+            )
+        )  # index 11

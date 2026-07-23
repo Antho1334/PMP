@@ -22,6 +22,7 @@ class Menu(QListWidget):
             "📊 Tableau de bord",
             "⚙ Paramètres",
             "🗺️ Cartographie opérationnelle",
+            "📋 Rapport quotidien",
         ])
 
         self.currentRowChanged.connect(
